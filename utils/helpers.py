@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from sklearn.cluster import DBSCAN
 from scipy.spatial.distance import cdist
 import seaborn as sns
+from datetime import datetime
 
 
 def read_request(route_id, ymd, idx_file):
@@ -23,7 +24,7 @@ def read_request(route_id, ymd, idx_file):
     file_request = os.listdir(folder_requests)[idx_file]
     file_path_request = os.path.join(folder_requests, file_request)
 
-
+    
     with open(file_path_request, 'r') as f:
         request = json.load(f)
 
@@ -81,6 +82,10 @@ def sort_request(df_request, route_id, ymd, idx_file):
 
 
 ######################    OUR UTILITIES:    ###########################
+
+def routedatestring_to_date(string):
+    """converts the datestring yyyymmdd into a date object."""
+    return datetime.strptime(string, "%Y%m%d").date()
 
 def get_route_dataframe(route_id, ymd, idx_file): 
     """
