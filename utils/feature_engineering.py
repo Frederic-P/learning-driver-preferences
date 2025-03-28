@@ -5,6 +5,7 @@ import numpy as np
 
 def calculate_distances(  
         df, 
+        ordercol,
         step_prev_dst = 'dist_since_prev', 
         cumsum = 'dist_cumulative', 
         step_next_dst = 'dist_to_next_stop'        
@@ -12,12 +13,13 @@ def calculate_distances(
     """
         Takes a pandas dataframe and returns distance metrics per routepoint
         based on euclidian distance. Dataframe gets sorted internally based on 
-        file UUID and ascending stop_number
+        file UUID and ascending stop_order
         NOTE: when updating order-logic in notebook 1, this needs to be reran!!
         //BUG: 28/3/2025: Order of stops is unclear see request id: 41931cd2-8975-4a64-9197-d16abe871bb7
         
         ARGUMENTS:
-            df = pandas df = (dataframe with lat and long column as well as file_uuid and stop_number.
+            df = pandas df = (dataframe with lat and long column as well as file_uuid and stop_order.
+            ordercol = column name where the order sequence information is stored as increment inteers.
             step_prev_dst = str (opt)= name of the column where interstop distances are stored.
                 this column for point c should be interpreted as 'distance driven from b to get to c'
             cumsum = str (opt) = name of column where total route distance at point is stored.
@@ -30,7 +32,7 @@ def calculate_distances(
     """
     calculated_distances = []
     for route, route_df in tqdm(df.groupby('file_uuid')):
-        route_df = route_df.sort_values('stop_number', ascending = True)
+        route_df = route_df.sort_values(ordercol, ascending = True)
         d = np.sqrt((route_df['lat'].diff())**2 + (route_df['long'].diff())**2)
         route_df[step_prev_dst] = d
         route_df[step_prev_dst] = route_df[step_prev_dst].fillna(0)

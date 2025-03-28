@@ -1,5 +1,5 @@
 /data/input/
 /data/intermediate/*
 
-.pyc
+*.pyc
 __pycache__
