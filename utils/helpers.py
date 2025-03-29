@@ -6,6 +6,8 @@ from sklearn.cluster import DBSCAN
 from scipy.spatial.distance import cdist
 import seaborn as sns
 from datetime import datetime
+import plotly.express as px
+
 
 
 def read_request(route_id, ymd, idx_file):
@@ -148,3 +150,27 @@ def find_clusters(df, eps=0.005, min_samples=3, latcol='lat', longcol='long'):
     plt.show()
     
     return df, cluster_centers
+
+
+
+
+def highlight_route(df, id, h, w):
+    """Highlight a specific route in green, others in steelblue."""
+    df = df.copy()
+    df['color'] = 'not in route'  # Set default value
+    df.loc[df['route_id'] == id, 'color'] = 'in route'
+
+
+    fig = px.scatter(
+        df,
+        x='lat',
+        y='long',
+        color='color',
+        title='Spread in set for route id '+id,
+        labels={'lat': 'Latitude', 'long': 'Longitude'},
+        color_discrete_map={'in route': '#64ff33', 'not in route': '#0068ff'}, 
+        height = h, 
+        width = w
+    )
+
+    fig.show()
