@@ -15,7 +15,6 @@ def calculate_distances(
         based on euclidian distance. Dataframe gets sorted internally based on 
         file UUID and ascending stop_order
         NOTE: when updating order-logic in notebook 1, this needs to be reran!!
-        //BUG: 28/3/2025: Order of stops is unclear see request id: 41931cd2-8975-4a64-9197-d16abe871bb7
         
         ARGUMENTS:
             df = pandas df = (dataframe with lat and long column as well as file_uuid and stop_order.
@@ -45,9 +44,42 @@ def calculate_distances(
 
 def stop_diffs(init_df, final_df):
     """
-        TODO: this method should return two lists:
-        1) list of points that are init_df and are missing from final_df 
+    ARGUMENTS:
+        init_df = df representing the first version of the route. 
+        final_df = df representing the final version of the route. 
+
+    RETURNS:
+        Method returns three lists:
+        1) list of points that are in common
         2) lists of points that are in final_df but were not in the init_df
-        this is rather straightforward with using sets and comparing them
+        3) list of points that are in init_df and are missing from final_df 
     """
-    pass
+    start_points = init_df.id
+    stop_points = final_df.id
+
+    common = list(set(start_points) & set(stop_points))
+    added = list(set(stop_points) - set(start_points))
+    dropped = list(set(start_points) - set(stop_points))
+
+    return [common, added, dropped]
+
+
+def get_route_center(df):
+    """
+    takes a dataframe and returns the center of each route_id
+    a route_id is shared across multiple days - but we've seen
+    in EDA that routes are sticking to specific zones of the 
+    larger geographic area. 
+    #TODO
+    ==> WARNING: sensitive to outliers. consider making another algo
+    """
+    df = df.copy()
+    res = []
+    for _, df_route in df.groupby('route_id'):
+        mean_lat = df_route['lat'].mean()
+        mean_long = df_route['long'].mean()
+        df_route['mean_lat'] = mean_lat
+        df_route['mean_long'] = mean_long
+        df_route['dst_point_to_center'] = np.sqrt((df_route['lat'] - mean_lat)**2 + (df_route['long'] - mean_long)**2)
+        res.append(df_route)
+    return pd.concat(res)

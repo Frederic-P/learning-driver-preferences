@@ -3,8 +3,10 @@
 name: env_learning_driver_preferences
 channels:
   - conda-forge
+  - anaconda
   - defaults
 dependencies:
+  - _py-xgboost-mutex=2.0=cpu_0
   - asttokens=3.0.0=pyhd8ed1ab_1
   - attrs=24.3.0=py312haa95532_0
   - blas=1.0=mkl
@@ -32,7 +34,6 @@ dependencies:
   - ipykernel=6.29.5=pyh4bbf305_0
   - ipython=8.32.0=pyh9ab4c32_0
   - jedi=0.19.2=pyhd8ed1ab_1
-  - joblib=1.4.2=py312haa95532_0
   - jpeg=9e=h827c3e9_3
   - jsonschema=4.23.0=py312haa95532_0
   - jsonschema-specifications=2023.7.1=py312haa95532_0
@@ -47,8 +48,8 @@ dependencies:
   - libsodium=1.0.18=h8d14728_1
   - libtiff=4.5.1=h44ae7cf_1
   - libwebp-base=1.3.2=h3d04722_1
+  - libxgboost=2.1.1=h585ebfc_0
   - lz4-c=1.9.4=h2bbff1b_1
-  - matplotlib-base=3.10.0=py312he19b0ae_0
   - matplotlib-inline=0.1.7=pyhd8ed1ab_1
   - mkl=2023.1.0=h6b88ed4_46358
   - mkl-service=2.4.0=py312h827c3e9_2
@@ -63,7 +64,6 @@ dependencies:
   - openpyxl=3.1.5=py312h827c3e9_1
   - openssl=3.0.16=h3f729d1_0
   - packaging=24.2=py312haa95532_0
-  - pandas=2.2.3=py312h5da7b33_0
   - parso=0.8.4=pyhd8ed1ab_1
   - pickleshare=0.7.5=pyhd8ed1ab_1004
   - pillow=11.1.0=py312h096bfcc_0
@@ -73,6 +73,7 @@ dependencies:
   - prompt-toolkit=3.0.50=pyha770c72_0
   - psutil=5.9.0=py312h827c3e9_1
   - pure_eval=0.2.3=pyhd8ed1ab_1
+  - py-xgboost=2.1.1=py312haa95532_0
   - pygments=2.19.1=pyhd8ed1ab_0
   - pyparsing=3.2.0=py312haa95532_0
   - python=3.12.8=h14ffc60_0
@@ -85,7 +86,6 @@ dependencies:
   - referencing=0.30.2=py312haa95532_0
   - rpds-py=0.22.3=py312h636fa0f_0
   - scikit-learn=1.6.1=py312h585ebfc_0
-  - scipy=1.15.1=py312hbb039d4_0
   - seaborn=0.13.2=py312haa95532_1
   - setuptools=75.1.0=py312haa95532_0
   - six=1.16.0=pyhd3eb1b0_1
@@ -110,4 +110,58 @@ dependencies:
   - zipp=3.21.0=pyhd8ed1ab_1
   - zlib=1.2.13=h8cc25b3_1
   - zstd=1.5.6=h8880b57_0
+  - pip:
+      - absl-py==2.2.1
+      - astunparse==1.6.3
+      - blinker==1.9.0
+      - certifi==2025.1.31
+      - charset-normalizer==3.4.1
+      - click==8.1.8
+      - cloudpickle==3.1.1
+      - cython==3.0.12
+      - deprecation==2.1.0
+      - flatbuffers==25.2.10
+      - gast==0.6.0
+      - google-pasta==0.2.0
+      - grpcio==1.71.0
+      - h5py==3.13.0
+      - idna==3.10
+      - itsdangerous==2.2.0
+      - jinja2==3.1.6
+      - joblib==1.3.2
+      - jupyterlab-widgets==3.0.13
+      - kaleido==0.2.1
+      - keras==3.9.1
+      - libclang==18.1.1
+      - llvmlite==0.44.0
+      - markdown==3.7
+      - markdown-it-py==3.0.0
+      - markupsafe==3.0.2
+      - matplotlib==3.10.0
+      - mdurl==0.1.2
+      - ml-dtypes==0.5.1
+      - namex==0.0.8
+      - numba==0.61.0
+      - opt-einsum==3.4.0
+      - optree==0.14.1
+      - orjson==3.10.16
+      - pandas==2.1.4
+      - patsy==1.0.1
+      - protobuf==5.29.4
+      - requests==2.32.3
+      - retrying==1.3.4
+      - rich==13.9.4
+      - schemdraw==0.15
+      - scikit-base==0.7.8
+      - scipy==1.11.4
+      - tensorboard==2.19.0
+      - tensorboard-data-server==0.7.2
+      - tensorflow==2.19.0
+      - termcolor==2.5.0
+      - tsdownsample==0.1.4.1
+      - urllib3==2.3.0
+      - werkzeug==3.0.6
+      - widgetsnbextension==4.0.13
+      - wrapt==1.17.2
+      - xxhash==3.5.0
 prefix: C:\Users\Frede\.conda\envs\env_learning_driver_preferences

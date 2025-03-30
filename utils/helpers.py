@@ -7,6 +7,7 @@ from scipy.spatial.distance import cdist
 import seaborn as sns
 from datetime import datetime
 import plotly.express as px
+from sklearn.model_selection import train_test_split
 
 
 
@@ -174,3 +175,38 @@ def highlight_route(df, id, h, w):
     )
 
     fig.show()
+
+
+def train_test_val_splitter(df, trainratio, testratio, valratio, stratcols = False): 
+    """takes a pandas df and splits it in three dfs according to the 
+    given ratios. Optionally it uses tratified splitting columns defined in stratcols.
+    arguments: 
+    df (pandas dataframe)
+    trainratio; (int): how many percent of df should end up in trainset
+    testratio: (int): how many percent of df should end up in testset
+    valratio: (int): how many percent of df should end up in valratio
+    stratcols: (list): list of column names to perform a stratified split on. 
+    """
+    assert(trainratio+testratio+valratio == 100)
+    if stratcols:
+        train_data, remaining_data = train_test_split(
+            df, test_size=(100 - trainratio) / 100, stratify=df[stratcols], random_state=42
+        )
+        test_data, val_data = train_test_split(
+            remaining_data, test_size=valratio / (testratio + valratio), stratify=remaining_data[stratcols], random_state=42
+        )
+    else:
+        train_data, remaining_data = train_test_split(
+            df, test_size=(100 - trainratio) / 100, random_state=42
+        )
+        test_data, val_data = train_test_split(
+            remaining_data, test_size=valratio / (testratio + valratio), random_state=42
+        )
+    return train_data, test_data, val_data
+
+
+def get_X_y(df, target, drop = []): 
+    drop.append(target)
+    X = df.drop(columns=drop)
+    y = df[target]
+    return [X, y]
