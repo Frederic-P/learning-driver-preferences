@@ -1,9 +1,15 @@
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import Point, MultiPoint, Polygon
-#from shapely.ops import unary_union
+import numpy as np
+from shapely.geometry import Point, MultiPoint, Polygon, MultiPolygon
+from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 from scipy.spatial import ConvexHull, QhullError
 import matplotlib.pyplot as plt
+from sklearn.cluster import DBSCAN
+from shapely.ops import triangulate
+from shapely.geometry import MultiPoint
+
 import random
 
 import os
@@ -18,6 +24,8 @@ class RoutePolygonManager:
         self.df = data
         self.polygons = {}  # route_id -> Polygon
         self.gdf = None     # GeoDataFrame of polygons
+        self.unionized_poly = {}  #Polygon survaces with common areas
+        self.reduced_poly = {}  #Polygon surfaces after shrinkage
 
     def create_polygons(self, latcol, longcol, cluster_id):
         """
@@ -134,29 +142,42 @@ class RoutePolygonManager:
             plt.show()
 
 
-    def plot_random_polygons_grid(self, plot_dim=4, figsize=(12, 12)):
+    def plot_random_polygons_grid(self, plot_dim=4, figsize=(12, 12), keyname = 'route_id', key_contains = False, plot_points=False):
         if self.gdf is None:
             raise ValueError("Polygons not yet created or loaded.")
 
         total_plots = plot_dim * plot_dim
-        available_polygons = self.gdf.copy()
+        if key_contains != False:
+            available_polygons = self.gdf[self.gdf[keyname].str.contains(key_contains)]
+        else: 
+            available_polygons = self.gdf.copy()
 
-        if len(available_polygons) < total_plots:
-            raise ValueError(f"Not enough polygons ({len(available_polygons)}) to fill {total_plots} subplots.")
-
+        # if len(available_polygons) < total_plots:
+        #     raise ValueError(f"Not enough polygons ({len(available_polygons)}) to fill {total_plots} subplots.")
+        if total_plots > len(available_polygons): 
+            total_plots = len((available_polygons))
+            print('less polygons available than requsted')
         sampled = available_polygons.sample(n=total_plots)
 
         fig, axs = plt.subplots(plot_dim, plot_dim, figsize=figsize)
-        fig.suptitle(f"{total_plots} Random Route Polygons", fontsize=16)
+        if key_contains: 
+            fig.suptitle(f"{total_plots} Polygons for route where key contains {key_contains}", fontsize=16)
+        else:
+            fig.suptitle(f"{total_plots} Random Route Polygons", fontsize=16)
         axs = axs.flatten()
 
         for ax, (_, row) in zip(axs, sampled.iterrows()):
             geom = row.geometry
-            route_id = row.get('route_id') or row.get('cluster_id', 'Route')
+            route_id = row.get(keyname) or row.get('cluster_id', 'Route')
 
             # Plot polygon and boundary
             gpd.GeoSeries([geom]).boundary.plot(ax=ax, color='blue', linewidth=1)
             gpd.GeoSeries([geom]).plot(ax=ax, alpha=0.3, edgecolor='black')
+            if plot_points: 
+                points_df = self.df.query(f'{keyname}=="{route_id}"')
+                # display(points_df)
+                ax.scatter(points_df['long'], points_df['lat'], c='red', s=2)
+
 
             # Set title and axis labels
             ax.set_title(str(route_id))
@@ -165,4 +186,133 @@ class RoutePolygonManager:
             ax.set_aspect('equal')
 
         plt.tight_layout(rect=[0, 0, 1, 0.95])
+        plt.show()
+
+
+
+    def overlay_polygons(self, overlap_frequency, key, route):
+        """
+        Overlays the polygons specified by the given list of IDs and the overlap frequency.
+
+        Args:
+        - ids (list): List of route_ids to overlay from the GeoDataFrame.
+        - overlap_frequency (float): Percentage (between 0 and 1) of the surface that should overlap.
+
+        Returns:
+        - Polygon: A single polygon representing the overlapped area.
+        """
+        if self.gdf is None:
+            raise ValueError("Polygons not yet created or loaded.")
+
+        # Ensure overlap_frequency is between 0 and 1
+        if not (0 <= overlap_frequency <= 1):
+            raise ValueError("overlap_frequency must be between 0 and 1.")
+
+        ids = [routeday for routeday in self.gdf[key] if routeday.startswith(route)]
+        # Get the polygons by ID
+        polygons_to_overlay = self.gdf[self.gdf[key].isin(ids)]['geometry']
+        
+        # Handle empty polygons case
+        if polygons_to_overlay.empty:
+            raise ValueError("No polygons found for the provided IDs.")
+
+        # Union all selected polygons
+        unioned_polygon = unary_union(polygons_to_overlay)
+
+        # If overlap_frequency is not 1, we reduce the area of the resulting unioned polygon.
+        # First, we'll buffer the resulting unioned polygon slightly to simulate a surface reduction.
+        # Positive buffer reduces the area, negative increases the area.
+
+        if overlap_frequency < 1:
+            buffer_distance = (1 - overlap_frequency) * unioned_polygon.area
+            unioned_polygon = unioned_polygon.buffer(-buffer_distance)  # Shrink the union polygon
+
+        # Return the final polygon
+        self.unionized_poly[route] = unioned_polygon
+
+
+
+
+    
+    def reduce_polygon(self, polygon, points, polyname, alpha=0.1, tolerance=0.001, eps=0.0075, min_samples=50):
+        """
+        Reduce the area of a polygon while optionally excluding some covered points.
+        
+        Args:
+            polygon (Polygon or MultiPolygon): Original polygon.
+            points (list of (x, y)): List of points.
+            alpha (float): Alpha parameter for alpha shape (concavity).
+            tolerance (float): Simplification tolerance.
+            eps (float): DBSCAN epsilon for clustering.
+            min_samples (int): DBSCAN minimum points per cluster.
+        
+        Returns:
+            Polygon: Reduced polygon.
+        """
+        def alpha_shape(points, alpha):
+            if len(points) < 4:
+                return MultiPoint(points).convex_hull
+            
+            coords = [Point(p) for p in points]
+            triangles = triangulate(MultiPoint(coords))
+            
+            def triangle_area(t):
+                return t.area
+            
+            filtered = [t for t in triangles if t.length > 0 and t.area < (1.0 / alpha)]
+            return unary_union(filtered).convex_hull
+        inside_points = [p for p in points if polygon.contains(Point(p))]      
+        if len(inside_points) == 0:
+            return polygon
+
+        coords = np.array(inside_points)
+        db = DBSCAN(eps=eps, min_samples=min_samples).fit(coords)
+        clustered = [tuple(coords[i]) for i in range(len(coords)) if db.labels_[i] != -1]
+        
+        if len(clustered) < 3:
+            clustered = inside_points  # fallback
+        reduced = alpha_shape(clustered, alpha)
+
+        simplified = reduced.simplify(tolerance, preserve_topology=True)
+
+        self.reduced_poly[polyname] = simplified
+
+        return simplified
+
+
+
+    def plot_optimized_polygon(self, raw_polygon: BaseGeometry, reduced_polygon: BaseGeometry, points):
+        """
+        Plots the original and reduced polygons along with the input points.
+        
+        Args:
+            raw_polygon (Polygon or MultiPolygon): The original large polygon.
+            reduced_polygon (Polygon or MultiPolygon): The reduced/simplified polygon.
+            points (list of (x, y)): List of point coordinates.
+        """
+        fig, ax = plt.subplots(figsize=(8, 8))
+
+        def plot_shape(shape, color, label, alpha=1.0, linestyle='-'):
+            if isinstance(shape, MultiPolygon):
+                for poly in shape.geoms:
+                    x, y = poly.exterior.xy
+                    ax.plot(x, y, color=color, label=label, alpha=alpha, linestyle=linestyle)
+                    label = None  # Only label the first in legend
+            elif isinstance(shape, Polygon):
+                x, y = shape.exterior.xy
+                ax.plot(x, y, color=color, label=label, alpha=alpha, linestyle=linestyle)
+
+        # Plot raw/original polygon
+        plot_shape(raw_polygon, color='red', label='Original Polygon', linestyle='--')
+
+        # Plot reduced polygon
+        plot_shape(reduced_polygon, color='green', label='Reduced Polygon')
+
+        # Plot points
+        px, py = zip(*points)
+        ax.scatter(px, py, color='blue', s=2, label='Points', alpha=0.7)
+
+        ax.set_title("Polygon Optimization Visualization")
+        ax.set_aspect('equal')
+        ax.legend()
         plt.show()
