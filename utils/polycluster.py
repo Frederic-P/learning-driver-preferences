@@ -8,6 +8,7 @@ import random
 
 import os
 
+#met dank aan chatgpt
 
 class RoutePolygonManager:
     def __init__(self, data: pd.DataFrame = None):
