@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from sklearn.cluster import DBSCAN
 from shapely.ops import triangulate
 from shapely.geometry import MultiPoint
+import math
 
 import random
 
@@ -26,6 +27,7 @@ class RoutePolygonManager:
         self.gdf = None     # GeoDataFrame of polygons
         self.unionized_poly = {}  #Polygon survaces with common areas
         self.reduced_poly = {}  #Polygon surfaces after shrinkage
+        self.reduced_poly_centroid = {}  # after Polygon reduction set the center to the point that is closest to all other points envelopped by the cluster.
 
     def create_polygons(self, latcol, longcol, cluster_id):
         """
@@ -277,11 +279,26 @@ class RoutePolygonManager:
 
         self.reduced_poly[polyname] = simplified
 
+        # Get polygon centroid
+        covered_points = [p for p in inside_points if simplified.contains(Point(p))]
+        if covered_points:
+            distances = []
+            if len(covered_points) > 1000:
+                random.shuffle(covered_points)
+                covered_points = covered_points[0:1000]
+            for i, p1 in enumerate(covered_points):
+                avg_dist = np.mean([np.linalg.norm(np.array(p1) - np.array(p2)) for j, p2 in enumerate(covered_points) if i != j])
+                distances.append((avg_dist, p1))
+            central_point = min(distances, key=lambda x: x[0])[1]
+            self.reduced_poly_centroid[polyname] = central_point
+        else:
+            self.reduced_poly_centroid[polyname] = None
+
         return simplified
 
 
 
-    def plot_optimized_polygon(self, raw_polygon: BaseGeometry, reduced_polygon: BaseGeometry, points):
+    def plot_optimized_polygon(self, raw_polygon: BaseGeometry, reduced_polygon: BaseGeometry, points, route_id):
         """
         Plots the original and reduced polygons along with the input points.
         
@@ -312,7 +329,62 @@ class RoutePolygonManager:
         px, py = zip(*points)
         ax.scatter(px, py, color='blue', s=2, label='Points', alpha=0.7)
 
+        # Plot the centroid: 
+        centroid = self.reduced_poly_centroid[route_id]
+        ax.scatter(centroid[0], centroid[1], color='red', s=40, marker="*", label='Centroid', alpha=0.7, zorder=5)
+
         ax.set_title("Polygon Optimization Visualization")
         ax.set_aspect('equal')
         ax.legend()
         plt.show()
+
+
+
+
+    def get_polygons_containing_coordinate(self, coordinate, polygons):
+        """
+        Returns a list of polygons that contain the given coordinate.
+
+        Args:
+            reduced_poly (dict): A dictionary where keys are route IDs and values are Shapely Polygon objects.
+            coordinate (tuple): A tuple representing the coordinate (lat, long).
+
+        Returns:
+            list: A list of route IDs whose polygons contain the given coordinate.
+        """
+        def find_closest_center(point, centers_dict):
+            closest_id = None
+            min_distance = float('inf')
+
+            for center_id, center in centers_dict.items():
+                # Calculate Euclidean distance
+                distance = math.sqrt((point[0] - center[0])**2 + (point[1] - center[1])**2)
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_id = center_id
+
+            return closest_id, min_distance
+
+
+
+        containing_polygons = []
+        #               lat             long
+        point = Point(coordinate[1], coordinate[0])
+
+        for route_id, polygon in polygons.items():
+            if polygon.contains(point):  # Check if the polygon contains the point
+                containing_polygons.append(route_id)
+
+        if len(containing_polygons) == 1:
+            return containing_polygons[0]
+        elif len(containing_polygons) == 0: 
+            #get any of the closest centroids
+            # return 'b'  #TODO
+            return find_closest_center(coordinate, self.reduced_poly_centroid)[0]
+        
+        else:
+            #get the closest centroid of subsection based on polygons
+            subselected_poly = {k:v for k,v in self.reduced_poly_centroid.items() if k in containing_polygons}
+            # return 'a'  #TODO
+            return find_closest_center(coordinate, subselected_poly)[0]
+
