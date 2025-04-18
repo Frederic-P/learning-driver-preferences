@@ -307,7 +307,7 @@ class RoutePolygonManager:
             reduced_polygon (Polygon or MultiPolygon): The reduced/simplified polygon.
             points (list of (x, y)): List of point coordinates.
         """
-        fig, ax = plt.subplots(figsize=(8, 8))
+        fig, ax = plt.subplots(figsize=(18, 12))
 
         def plot_shape(shape, color, label, alpha=1.0, linestyle='-'):
             if isinstance(shape, MultiPolygon):
@@ -331,7 +331,7 @@ class RoutePolygonManager:
 
         # Plot the centroid: 
         centroid = self.reduced_poly_centroid[route_id]
-        ax.scatter(centroid[0], centroid[1], color='red', s=40, marker="*", label='Centroid', alpha=0.7, zorder=5)
+        ax.scatter(centroid[0], centroid[1], color='red', s=80, marker="*", label='Centroid', alpha=0.7, zorder=5)
 
         ax.set_title("Polygon Optimization Visualization")
         ax.set_aspect('equal')
