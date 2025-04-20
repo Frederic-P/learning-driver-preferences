@@ -1,6 +1,7 @@
 import os
 import json
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.cluster import DBSCAN
 from scipy.spatial.distance import cdist
@@ -8,6 +9,215 @@ import seaborn as sns
 from datetime import datetime
 import plotly.express as px
 from sklearn.model_selection import train_test_split
+import math
+from ortools.constraint_solver import routing_enums_pb2
+from ortools.constraint_solver import pywrapcp
+from sklearn.cluster import AgglomerativeClustering, KMeans
+
+
+
+##Solver for TSP (Travelling Salesman Problem); implemented
+# in a bad way, but that does not matter for now; it's just a
+# way to get a metric for new route confiugrations.
+def euclidean_distance(p1, p2):
+    return math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+
+def create_distance_matrix(points):
+    size = len(points)
+    matrix = [[0] * size for _ in range(size)]
+    for i in range(size):
+        for j in range(size):
+            if i != j:
+                matrix[i][j] = euclidean_distance(points[i], points[j])
+    return matrix
+
+def solve_tsp(points):
+    # Identify the most southwest point
+    start_index = min(range(len(points)), key=lambda i: (points[i][1], points[i][0]))
+
+    distance_matrix = create_distance_matrix(points)
+    manager = pywrapcp.RoutingIndexManager(len(distance_matrix), 1, start_index)
+    routing = pywrapcp.RoutingModel(manager)
+
+    def distance_callback(from_index, to_index):
+        return int(distance_matrix[manager.IndexToNode(from_index)][manager.IndexToNode(to_index)] * 1000)  # scale to int
+
+    transit_callback_index = routing.RegisterTransitCallback(distance_callback)
+    routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+
+    # Set search parameters
+    search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+    search_parameters.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+
+    solution = routing.SolveWithParameters(search_parameters)
+
+    if solution:
+        index = routing.Start(0)
+        route = []
+        total_distance = 0
+        while not routing.IsEnd(index):
+            node_index = manager.IndexToNode(index)
+            route.append(points[node_index])
+            next_index = solution.Value(routing.NextVar(index))
+            total_distance += distance_matrix[node_index][manager.IndexToNode(next_index)]
+            index = next_index
+        return total_distance, route
+    else:
+        return None, []
+###TSP END
+
+def calculate_centroid(coords):
+    """Function that calculates the center of a small subset of points"""
+    sum_x = sum(coord[0] for coord in coords)
+    sum_y = sum(coord[1] for coord in coords)
+    centroid_x = sum_x / len(coords)
+    centroid_y = sum_y / len(coords)
+
+    return (centroid_x, centroid_y)
+
+
+def merge_partitions(partitions, max_stops_per_route, max_clusters=200):
+    merged_partitions = partitions.copy()
+    
+    def find_closest_pair():
+        """Looks for the other value with a closest center without exceeding the max_stops_per_route arg"""
+        closest_pair = None
+        min_distance = float('inf')
+        
+        # Check all pairs of partitions
+        partition_ids = list(merged_partitions.keys())
+        for i in range(len(partition_ids)):
+            for j in range(i + 1, len(partition_ids)):
+                id1, id2 = partition_ids[i], partition_ids[j]
+                center1 = merged_partitions[id1]['partition_center']
+                center2 = merged_partitions[id2]['partition_center']
+                dist = euclidean_distance(center1, center2)
+                
+                # Calculate the new count if we were to merge these partitions
+                new_count = merged_partitions[id1]['count'] + merged_partitions[id2]['count']
+                
+                # If they are closer and merging them won't exceed max_count
+                if dist < min_distance and new_count <= max_stops_per_route:
+                    min_distance = dist
+                    closest_pair = (id1, id2)
+        
+        return closest_pair
+    
+    # Keep merging until we reach max_clusters or cannot merge further
+    while len(merged_partitions) > max_clusters:
+        print(len(merged_partitions), ' ', end='\r')
+        # Find the closest pair of partitions
+        closest_pair = find_closest_pair()
+        
+        if not closest_pair:
+            break  # No more valid merges possible
+        
+        id1, id2 = closest_pair
+        partition1 = merged_partitions[id1]
+        partition2 = merged_partitions[id2]
+        
+        # Merge the partitions
+        new_count = partition1['count'] + partition2['count']
+        merged_points = list(partition1['partition_points']) + list(partition2['partition_points'])
+        new_center = calculate_centroid(merged_points)
+
+        # Create a new merged partition
+        new_partition = {
+            'partitionId': min(id1, id2),
+            'count': new_count,
+            'partition_points': merged_points,
+            'partition_center': new_center
+        }
+        
+        # Remove the old partitions and add the new one
+        del merged_partitions[id1]
+        del merged_partitions[id2]
+        merged_partitions[new_partition['partitionId']] = new_partition
+    
+    return merged_partitions
+
+
+def cluster_points(points, n_clusters):
+    """
+    Clusters 2D points into exactly n_clusters, good for non-spherical, bunched-up groups.
+
+    Args:
+        points (array-like): List or array of 2D points [(x, y), ...].
+        n_clusters (int): Number of clusters to find.
+
+    Returns:
+        np.ndarray: Array of cluster labels for each point.
+    """
+    points = np.array(points)
+
+    model = AgglomerativeClustering(
+        n_clusters=n_clusters,
+        linkage='single',  # good for chaining tightly packed points
+    )
+
+    labels = model.fit_predict(points)
+    return labels
+
+
+def cluster_kmeans(points, n_clusters):
+    points_np = np.array(points)
+    kmeans = KMeans(n_clusters=n_clusters, n_init="auto", random_state=42)
+    labels = kmeans.fit_predict(points_np)
+    return labels
+
+def partition(coords, max_points=200):
+    """
+    Recursively partitions a list of (lat, lon) coordinates into clusters
+    of at most `max_points` using axis-aligned splitting.
+
+    Args:
+        coords (list or np.ndarray): List/array of (lat, lon) points.
+        max_points (int): Maximum number of points per cluster.
+
+    Returns:
+        List of np.ndarrays, each of shape (<=max_points, 2)
+    """
+    coords = np.array(coords)
+    
+    def split_recursive(points, depth=0):
+        if len(points) <= max_points:
+            return [points]
+
+        # Alternate splitting axis: 0 for lat, 1 for lon
+        axis = depth % 2
+        sorted_points = points[points[:, axis].argsort()]
+        median_index = len(sorted_points) // 2
+
+        left = sorted_points[:median_index]
+        right = sorted_points[median_index:]
+
+        return split_recursive(left, depth + 1) + split_recursive(right, depth + 1)
+
+    return split_recursive(coords)
+
+
+
+
+def plot_centra_vs_full(centradata, fulldata, partitionsize, size = 2):
+    partition_centra = []
+    centra_representational_power = []
+    for k, v in centradata.items(): 
+        partition_centra.append(v['partition_center'])
+        centra_representational_power.append(v['count'])
+    x_coords = [coord[0] for coord in partition_centra]
+    y_coords = [coord[1] for coord in partition_centra]
+    plt.figure(figsize=(20, 8))
+    plt.subplot(1, 2, 1)
+    scatter1 = plt.scatter(x_coords, y_coords, c=centra_representational_power, cmap='brg', s=size)
+    plt.colorbar(scatter1, label='Representation count of center')
+    plt.title(f'Partitioned plot ({len(partition_centra)} | {partitionsize})')
+    plt.subplot(1, 2, 2)
+    scatter2 = plt.scatter(fulldata['lat'], fulldata['long'], c='blue', s=2)
+    plt.tight_layout()
+
+
+
+
 
 
 
