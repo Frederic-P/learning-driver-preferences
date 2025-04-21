@@ -617,10 +617,10 @@ def tune_threshold(model_result, metric='recall'):
 
     for t in thresholds:
         y_pred = (y_proba >= t).astype(int)
-        recalls.append(recall_score(y_true, y_pred))
-        precisions.append(precision_score(y_true, y_pred))
-        f1s.append(f1_score(y_true, y_pred))
-
+        recalls.append(recall_score(y_true, y_pred, zero_division=0))
+        precisions.append(precision_score(y_true, y_pred, zero_division=0))
+        f1s.append(f1_score(y_true, y_pred, zero_division=0))
+        
     # Choose best threshold based on selected metric
     metric_values = {
         'recall': recalls,
