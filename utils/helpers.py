@@ -14,7 +14,9 @@ from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 from sklearn.cluster import AgglomerativeClustering, KMeans
 
-
+from sklearn.metrics import accuracy_score, classification_report,ConfusionMatrixDisplay, \
+                            precision_score, recall_score, f1_score, roc_auc_score,roc_curve, \
+                            auc, confusion_matrix,precision_recall_curve, average_precision_score 
 
 ##Solver for TSP (Travelling Salesman Problem); implemented
 # in a bad way, but that does not matter for now; it's just a
@@ -420,3 +422,226 @@ def get_X_y(df, target, drop = []):
     X = df.drop(columns=drop)
     y = df[target]
     return [X, y]
+
+def evaluate_model_performance(model, model_name, X_train, y_train, X_test, y_test) -> dict:
+    """
+    Train a model, evaluate performance, plot confusion matrix, and extract feature importances and predicted probabilities.
+
+    Args:
+        model: sklearn/XGBoost model instance.
+        model_name (str): Label for the model.
+        X_train, y_train: Training data.
+        X_test, y_test: Test data.
+
+    Returns:
+        dict: Includes performance metrics, feature importances, and predicted probabilities.
+    """
+    # Train model
+    model.fit(X_train, y_train)
+
+    # Predictions
+    y_train_pred = model.predict(X_train)
+    y_test_pred = model.predict(X_test)
+
+    # Try to get predicted probabilities (for ROC curve)
+    try:
+        y_test_proba = model.predict_proba(X_test)[:, 1]  # Probability for the positive class
+    except AttributeError:
+        y_test_proba = None
+        print(f"{model_name} does not support `predict_proba`.")
+
+    # Training metrics
+    train_metrics = {
+        'accuracy': accuracy_score(y_train, y_train_pred),
+        'f1': f1_score(y_train, y_train_pred, average='weighted'),
+        'precision': precision_score(y_train, y_train_pred),
+        'recall': recall_score(y_train, y_train_pred),
+        'roc_auc': roc_auc_score(y_train, y_train_pred)
+    }
+
+    # Test metrics
+    test_metrics = {
+        'accuracy': accuracy_score(y_test, y_test_pred),
+        'f1': f1_score(y_test, y_test_pred, average='weighted'),
+        'precision': precision_score(y_test, y_test_pred),
+        'recall': recall_score(y_test, y_test_pred),
+        'roc_auc': roc_auc_score(y_test, y_test_pred)
+    }
+
+    # Print results
+    print(f"\n{model_name}")
+    print('Model performance for Training set')
+    for metric, value in train_metrics.items():
+        print(f"- {metric.capitalize()}: {value:.4f}")
+
+    print('----------------------------------')
+    print('Model performance for Test set')
+    for metric, value in test_metrics.items():
+        print(f"- {metric.capitalize()}: {value:.4f}")
+    print('=' * 35 + '\n')
+
+    # Confusion matrix
+    cm = confusion_matrix(y_test, y_test_pred)
+    cm_df = pd.DataFrame(data=cm, index=['Actual Positive:0', 'Actual Negative:1'], 
+                         columns=['Predict Positive:0', 'Predict Negative:1'])
+
+    sns.heatmap(cm_df, annot=False, fmt='d', cmap='coolwarm', cbar=False, linewidths=0.5)
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            plt.text(j + 0.5, i + 0.5, str(cm[i, j]),
+                     ha='center', va='center',
+                     fontsize=12, color='white')
+    plt.title(f"Confusion Matrix for {model_name}")
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.15)
+    plt.show()
+
+    # Feature importance
+    importance_df = pd.DataFrame()
+
+    try:
+        if hasattr(model, 'get_booster'):
+            # XGBoost
+            booster = model.get_booster()
+            importance_dict = booster.get_score(importance_type='gain')
+            importance_df = pd.DataFrame(importance_dict.items(), columns=['feature', 'importance'])
+        elif hasattr(model, 'feature_importances_'):
+            # scikit-learn style
+            importance_df = pd.DataFrame({
+                'feature': X_train.columns if hasattr(X_train, 'columns') else [f'feature_{i}' for i in range(X_train.shape[1])],
+                'importance': model.feature_importances_
+            })
+        else:
+            print(f"Feature importance not supported for {model_name}.")
+    except Exception as e:
+        print(f"Could not extract feature importance for {model_name}: {e}")
+
+    importance_df['model'] = model_name
+    importance_df = importance_df.sort_values(by='importance', ascending=False)
+
+    return {
+        'model': model_name,
+        'train': train_metrics,
+        'test': test_metrics,
+        'feature_importance': importance_df,
+        'y_test_pred_proba': y_test_proba,
+        'y_test_true': y_test
+    }
+
+
+def plot_roc_curves_from_results(*model_results):
+    """
+    Plot ROC curves for one or more model result dictionaries.
+
+    Each dictionary should contain:
+        - 'model': str
+        - 'y_test_true': array-like
+        - 'y_test_pred_proba': array-like
+
+    Args:
+        *model_results: Variable number of model result dictionaries.
+    """
+    plt.figure(figsize=(8, 6))
+
+    for result in model_results:
+        y_true = result['y_test_true']
+        y_proba = result['y_test_pred_proba']
+        model_name = result.get('model', 'Model')
+
+        # Calculate ROC and AUC
+        fpr, tpr, _ = roc_curve(y_true, y_proba)
+        roc_auc = auc(fpr, tpr)
+
+        # Plot ROC curve
+        plt.plot(fpr, tpr, label=f"{model_name} (AUC = {roc_auc:.2f})", lw=2)
+
+    # Plot diagonal reference
+    plt.plot([0, 1], [0, 1], linestyle='--', color='gray', lw=1)
+
+    # Formatting
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curves for Multiple Models')
+    plt.legend(loc="lower right")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_precision_recall_curves(*model_results):
+    """
+    Plot Precision-Recall curves for given models.
+
+    Args:
+        *model_results: Variable number of model result dictionaries.
+    """
+    plt.figure(figsize=(8, 6))
+
+    for result in model_results:
+        y_true = result['y_test_true']
+        y_proba = result['y_test_pred_proba']
+        model_name = result.get('model', 'Model')
+
+        precision, recall, _ = precision_recall_curve(y_true, y_proba)
+        ap_score = average_precision_score(y_true, y_proba)
+
+        plt.plot(recall, precision, lw=2, label=f"{model_name} (AP = {ap_score:.2f})")
+
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curves')
+    plt.legend(loc="best")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+def tune_threshold(model_result, metric='recall'):
+    """
+    Tune threshold for binary classification based on predicted probabilities.
+
+    Args:
+        model_result (dict): Output from evaluate_model_performance
+        metric (str): Metric to optimize ('recall', 'precision', 'f1')
+
+    Returns:
+        best_threshold (float): Threshold that maximizes the selected metric
+    """
+    y_true = model_result['y_test_true']
+    y_proba = model_result['y_test_pred_proba']
+    model_name = model_result.get('model', 'Model')
+
+    thresholds = np.linspace(0, 1, 101)
+    recalls, precisions, f1s = [], [], []
+
+    for t in thresholds:
+        y_pred = (y_proba >= t).astype(int)
+        recalls.append(recall_score(y_true, y_pred))
+        precisions.append(precision_score(y_true, y_pred))
+        f1s.append(f1_score(y_true, y_pred))
+
+    # Choose best threshold based on selected metric
+    metric_values = {
+        'recall': recalls,
+        'precision': precisions,
+        'f1': f1s
+    }
+
+    best_idx = np.argmax(metric_values[metric])
+    best_threshold = thresholds[best_idx]
+
+    # Plot
+    plt.figure(figsize=(8, 6))
+    plt.plot(thresholds, recalls, label='Recall', color='orange')
+    plt.plot(thresholds, precisions, label='Precision', color='blue')
+    plt.plot(thresholds, f1s, label='F1 Score', color='green')
+    plt.xlabel("Threshold")
+    plt.ylabel("Score")
+    plt.title(f"Threshold Tuning for {model_name} (Optimizing {metric.capitalize()})")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+    return best_threshold
